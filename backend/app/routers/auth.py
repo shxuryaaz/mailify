@@ -21,6 +21,7 @@ from ..auth.oauth import consent_url, exchange_code, fetch_userinfo
 from ..config import settings
 from ..db import db
 from ..deps import current_user
+from ..gmail.client import GmailClient
 from ..gmail.watch import register_watch
 from ..security import encrypt, issue_jwt
 from ..taste.agent import build_profiles
@@ -61,6 +62,13 @@ async def gmail_callback(request: Request, background: BackgroundTasks):
     # (it does on first consent / prompt=consent).
     if refresh_token:
         data["gmailRefreshTokenEnc"] = encrypt(refresh_token)
+
+    # Refresh the stored signature on every sign-in so drafts track whatever the
+    # owner currently has set in Gmail. Best-effort — never block auth on it.
+    try:
+        data["signatureHtml"] = await GmailClient(access_token).get_signature()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("callback: could not fetch signature user=%s error=%s", email, exc)
 
     if existing:
         user = await db.user.update(where={"id": existing.id}, data=data)

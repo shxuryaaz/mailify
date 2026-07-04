@@ -99,6 +99,7 @@ GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",  # create/update/send drafts
     "https://www.googleapis.com/auth/gmail.modify",   # trash, watch
+    "https://www.googleapis.com/auth/gmail.settings.basic",  # read the user's signature
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",

@@ -83,8 +83,13 @@ The owner reads and approves every draft before it sends — so draft in their v
 but never invent facts (prices, dates, commitments) you don't have. If a fact is \
 needed and unknown, leave a clearly bracketed placeholder like [confirm date].
 
-You are given: the owner's style profile for this sender's relationship bucket, and \
-the incoming email thread. Decide three things and return them as JSON:
+The owner's name is given to you. Sign off with their actual name — NEVER write a \
+[Your Name] placeholder, and never leave the sign-off blank. Match the style profile \
+for how they sign off (e.g. first name only for close contacts, full name for formal \
+ones); if the profile is silent, use their first name.
+
+You are given: the owner's identity, their style profile for this sender's relationship \
+bucket, and the incoming email thread. Decide three things and return them as JSON:
 
 - "importance": integer 0-100. How much this email matters to the owner. Used ONLY for \
   ordering and prioritization — NOT for whether to notify. Be calibrated: newsletters \
@@ -99,8 +104,15 @@ the incoming email thread. Decide three things and return them as JSON:
 Return exactly {"importance": int, "should_draft": bool, "draft_body": str}."""
 
 
-async def draft_reply(*, style_profile: str, thread_text: str, sender: str) -> dict[str, Any]:
+async def draft_reply(
+    *, style_profile: str, thread_text: str, sender: str,
+    owner_name: str = "", owner_email: str = "",
+) -> dict[str, Any]:
+    owner_line = owner_name or owner_email or "(unknown — do NOT guess; use their first name if it appears in the thread)"
     user = (
+        f"Owner (you are writing AS this person): {owner_line}"
+        + (f" <{owner_email}>" if owner_name and owner_email else "")
+        + "\n\n"
         f"Owner's style profile for this sender's bucket:\n{style_profile}\n\n"
         f"Sender: {sender}\n\n"
         f"Incoming thread (most recent last):\n{thread_text}"

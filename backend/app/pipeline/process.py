@@ -100,7 +100,10 @@ async def process_message(user: User, message_id: str) -> None:
     profile = await _newest_profile(user.id, bucket)
 
     thread_text = _render_thread(msg)
-    result = await draft_reply(style_profile=profile, thread_text=thread_text, sender=msg["from"])
+    result = await draft_reply(
+        style_profile=profile, thread_text=thread_text, sender=msg["from"],
+        owner_name=user.name or "", owner_email=user.email,
+    )
     importance = result["importance"]
     do_draft = _should_draft(result["should_draft"], importance)
 
@@ -126,6 +129,7 @@ async def process_message(user: User, message_id: str) -> None:
         body=result["draft_body"],
         in_reply_to=msg["message_id_header"] or None,
         references=(msg["references"] + " " + msg["message_id_header"]).strip() or None,
+        signature_html=user.signatureHtml,
     )
     gmail_draft_id = gmail_draft.get("id", "")
 

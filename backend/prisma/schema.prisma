@@ -33,6 +33,7 @@ model User {
   googleSub                 String   @unique // Google account subject ("sub" claim) — stable id
   name                      String?
   pictureUrl                String?
+  signatureHtml             String?  // owner's Gmail signature (HTML), appended to every draft
 
   // Gmail OAuth — refresh token stored encrypted (Fernet). Never plaintext.
   gmailRefreshTokenEnc      String?

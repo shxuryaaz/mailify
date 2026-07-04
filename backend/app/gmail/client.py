@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 from email.message import EmailMessage
+from html import escape
 from typing import Any
 
 import httpx
@@ -41,6 +42,16 @@ class GmailClient:
     # -- profile / watch ------------------------------------------------------
     async def get_profile(self) -> dict[str, Any]:
         return await self._request("GET", "/profile")
+
+    async def get_signature(self) -> str:
+        """The owner's Gmail signature HTML (from settings). Returns the primary
+        sendAs's signature, or the first non-empty one, or '' if none is set."""
+        data = await self._request("GET", "/settings/sendAs")
+        send_as = data.get("sendAs", [])
+        primary = next((s for s in send_as if s.get("isPrimary")), None)
+        if primary and primary.get("signature"):
+            return primary["signature"]
+        return next((s["signature"] for s in send_as if s.get("signature")), "")
 
     async def watch(self, topic_name: str) -> dict[str, Any]:
         """Register a Pub/Sub watch on the mailbox. Returns {historyId, expiration}."""
@@ -90,11 +101,13 @@ class GmailClient:
     async def create_draft(
         self, *, thread_id: str, to: str, subject: str, body: str,
         in_reply_to: str | None = None, references: str | None = None,
+        signature_html: str | None = None,
     ) -> dict[str, Any]:
         """Create a NATIVE Gmail draft (shows up in the user's real Gmail).
         Returns the draft resource including its id."""
         raw = _build_raw(to=to, subject=subject, body=body,
-                         in_reply_to=in_reply_to, references=references)
+                         in_reply_to=in_reply_to, references=references,
+                         signature_html=signature_html)
         return await self._request(
             "POST", "/drafts",
             json={"message": {"raw": raw, "threadId": thread_id}},
@@ -103,9 +116,11 @@ class GmailClient:
     async def update_draft(
         self, draft_id: str, *, thread_id: str, to: str, subject: str, body: str,
         in_reply_to: str | None = None, references: str | None = None,
+        signature_html: str | None = None,
     ) -> dict[str, Any]:
         raw = _build_raw(to=to, subject=subject, body=body,
-                         in_reply_to=in_reply_to, references=references)
+                         in_reply_to=in_reply_to, references=references,
+                         signature_html=signature_html)
         return await self._request(
             "PUT", f"/drafts/{draft_id}",
             json={"message": {"raw": raw, "threadId": thread_id}},
@@ -122,6 +137,7 @@ class GmailClient:
 def _build_raw(
     *, to: str, subject: str, body: str,
     in_reply_to: str | None = None, references: str | None = None,
+    signature_html: str | None = None,
 ) -> str:
     msg = EmailMessage()
     msg["To"] = to
@@ -130,5 +146,17 @@ def _build_raw(
         msg["In-Reply-To"] = in_reply_to
     if references:
         msg["References"] = references
+
+    # No signature -> keep the historical plain-text message untouched.
+    if not signature_html:
+        msg.set_content(body)
+        return base64.urlsafe_b64encode(msg.as_bytes()).decode()
+
+    # With a signature we send multipart/alternative: a plain-text part (the
+    # reply body, signature omitted) plus an HTML part carrying the reply and the
+    # owner's real HTML signature (logo, links, formatting intact).
     msg.set_content(body)
+    body_html = escape(body).replace("\n", "<br>\n")
+    html = f"<div>{body_html}</div><br>\n{signature_html}"
+    msg.add_alternative(html, subtype="html")
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
