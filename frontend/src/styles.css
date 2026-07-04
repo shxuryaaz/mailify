@@ -88,6 +88,30 @@ button { font-family: inherit; cursor: pointer; }
   border-radius: 999px;
   padding: 5px 11px;
 }
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.topbar-right .pill {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 42vw;
+}
+.pill-btn {
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+.pill-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
 
 /* ── Tabs (Pending / Sent) ────────────────────────────────────────────────── */
 .tabs {

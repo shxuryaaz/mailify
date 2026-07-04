@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import { clearToken } from "../auth.js";
 import { alreadySubscribed, enablePush, isIOS, isStandalone, pushSupported } from "../push.js";
 
 function ImportanceMeter({ value }) {
@@ -102,6 +103,11 @@ function fmtSent(iso) {
 }
 
 export default function Inbox({ me }) {
+  const nav = useNavigate();
+  const logout = () => {
+    clearToken();
+    nav("/welcome", { replace: true });
+  };
   const [tab, setTab] = useState("pending"); // "pending" | "sent"
   const [drafts, setDrafts] = useState(null);
   const [sent, setSent] = useState(null);
@@ -143,7 +149,10 @@ export default function Inbox({ me }) {
     <div className="shell">
       <div className="topbar">
         <div className="wordmark"><span className="dot" />Mailify</div>
-        <span className="pill">{me.email}</span>
+        <div className="topbar-right">
+          <span className="pill">{me.email}</span>
+          <button className="pill pill-btn" onClick={logout}>Sign out</button>
+        </div>
       </div>
 
       <PushBanner />
