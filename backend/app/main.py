@@ -48,8 +48,9 @@ async def root():
     return {"app": settings.app_name, "status": "ok"}
 
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 async def healthz():
+    # Accept HEAD too — uptime pingers (UptimeRobot etc.) send HEAD by default.
     return {"status": "healthy"}
 
 
