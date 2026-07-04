@@ -187,7 +187,7 @@ export default function Inbox({ me }) {
 
           {drafts && drafts.length === 0 && (
             <div className="center">
-              <div className="empty-emoji">✨</div>
+              <img className="empty-logo" src="/empty-mark.png" alt="Mailify" />
               <h2 className="display" style={{ fontSize: 22 }}>You're all caught up</h2>
               <div className="muted">
                 New replies will appear here the moment they're drafted. We'll ping you.

@@ -416,6 +416,13 @@ button { font-family: inherit; cursor: pointer; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .empty-emoji { font-size: 40px; }
+.empty-logo {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  opacity: 0.9;
+  margin-bottom: 6px;
+}
 .muted { color: var(--text-dim); font-size: 15px; line-height: 1.5; max-width: 34ch; }
 
 .back {
