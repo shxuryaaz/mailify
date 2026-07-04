@@ -66,15 +66,33 @@ async def build_profiles(user: User) -> dict:
         sent_ids = await gmail.list_messages("in:sent", ONBOARDING_SENT_SAMPLE)
         log.info("taste: fetched %s sent ids for user=%s", len(sent_ids), user.id)
 
-        # Fetch bodies (bounded concurrency to be gentle on Gmail quota).
+        # Publish the total up front so the setup screen can show a real bar, and
+        # reset the counter (this run starts fresh).
+        total = len(sent_ids)
+        await db.user.update(where={"id": user.id},
+                             data={"onboardingTotal": total, "onboardingProcessed": 0})
+
+        # Fetch bodies (bounded concurrency to be gentle on Gmail quota). Flush the
+        # processed count to the DB every few emails so the frontend poll sees it
+        # climb — not on every email (that'd be ~300 needless writes).
         sem = asyncio.Semaphore(8)
+        progress = {"done": 0}
+        lock = asyncio.Lock()
+        PROGRESS_FLUSH_EVERY = 10
 
         async def _fetch(mid: str):
             async with sem:
                 try:
-                    return parse_message(await gmail.get_message(mid))
+                    result = parse_message(await gmail.get_message(mid))
                 except Exception:  # noqa: BLE001
-                    return None
+                    result = None
+            async with lock:
+                progress["done"] += 1
+                done = progress["done"]
+            if done % PROGRESS_FLUSH_EVERY == 0 or done == total:
+                await db.user.update(where={"id": user.id},
+                                     data={"onboardingProcessed": done})
+            return result
 
         parsed = [p for p in await asyncio.gather(*(_fetch(m) for m in sent_ids)) if p]
 

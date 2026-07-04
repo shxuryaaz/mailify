@@ -15,6 +15,8 @@ const STATES = {
 export default function Onboarding({ me }) {
   const nav = useNavigate();
   const [state, setState] = useState(me.onboardingState || "profiling");
+  const [processed, setProcessed] = useState(me.onboardingProcessed ?? 0);
+  const [total, setTotal] = useState(me.onboardingTotal ?? 0);
 
   useEffect(() => {
     let alive = true;
@@ -23,6 +25,8 @@ export default function Onboarding({ me }) {
         const fresh = await api.me();
         if (!alive) return;
         setState(fresh.onboardingState);
+        setProcessed(fresh.onboardingProcessed ?? 0);
+        setTotal(fresh.onboardingTotal ?? 0);
         if (fresh.onboardingComplete) {
           // Full reload rather than nav("/"): we're already at "/", so a router
           // navigation is a no-op and Gate never re-fetches. A hard load
@@ -43,6 +47,16 @@ export default function Onboarding({ me }) {
 
   const step = STATES[state] ?? 2;
   const failed = state === "error";
+  const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const reading = !failed && step < 3 && total > 0;
+
+  const buildSub = failed
+    ? "Something went wrong — try reconnecting."
+    : reading
+    ? `Read ${processed} of ${total} sent emails`
+    : total > 0
+    ? "Distilling your writing style…"
+    : "Reading your sent mail and learning how you write";
 
   const rows = [
     { n: 1, t: "Signed in with Google", s: me.email, done: true },
@@ -50,9 +64,7 @@ export default function Onboarding({ me }) {
     {
       n: 3,
       t: failed ? "Voice profile failed" : "Building your voice profile",
-      s: failed
-        ? "Something went wrong — try reconnecting."
-        : "Reading your sent mail and learning how you write",
+      s: buildSub,
       done: step >= 3,
       active: !failed && step < 3,
     },
@@ -87,6 +99,16 @@ export default function Onboarding({ me }) {
             </div>
           ))}
         </div>
+
+        {reading && (
+          <div className="progress">
+            <div className="progress-bar"><span style={{ width: `${pct}%` }} /></div>
+            <div className="progress-label">
+              <span>{processed} / {total} emails</span>
+              <span>{pct}%</span>
+            </div>
+          </div>
+        )}
 
         {failed && (
           <a className="btn btn-primary" href={api.loginUrl()} style={{ marginTop: 20 }}>

@@ -46,6 +46,8 @@ model User {
 
   onboardingComplete        Boolean  @default(false)
   onboardingState           String   @default("new") // new | connecting | profiling | ready | error
+  onboardingTotal           Int?     // sent emails the taste agent will read
+  onboardingProcessed       Int?     // sent emails read so far (drives the setup progress bar)
 
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt

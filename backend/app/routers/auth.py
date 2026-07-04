@@ -110,4 +110,6 @@ async def me(user: User = Depends(current_user)):
         "gmailConnected": user.gmailConnected,
         "onboardingComplete": user.onboardingComplete,
         "onboardingState": user.onboardingState,
+        "onboardingTotal": user.onboardingTotal,
+        "onboardingProcessed": user.onboardingProcessed,
     }
