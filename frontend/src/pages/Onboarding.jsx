@@ -24,7 +24,10 @@ export default function Onboarding({ me }) {
         if (!alive) return;
         setState(fresh.onboardingState);
         if (fresh.onboardingComplete) {
-          nav("/", { replace: true });
+          // Full reload rather than nav("/"): we're already at "/", so a router
+          // navigation is a no-op and Gate never re-fetches. A hard load
+          // re-mounts Gate, which re-checks status and renders the inbox.
+          window.location.assign("/");
         }
       } catch (_) {
         /* keep polling */
