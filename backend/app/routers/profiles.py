@@ -34,6 +34,38 @@ async def list_profiles(user: User = Depends(current_user)):
     return out
 
 
+class EditBody(BaseModel):
+    bucket: str
+    profileText: str
+
+
+@router.post("/edit")
+async def edit_profile(body: EditBody, user: User = Depends(current_user)):
+    """Owner hand-edits their voice for a bucket. Appended as a new 'manual'
+    version — because draft time and the learning loop both read the newest
+    version, the edit takes effect on the next draft and becomes the anchor the
+    loop refines from. Never overwrites history."""
+    if body.bucket not in BUCKETS:
+        raise HTTPException(400, "Unknown bucket")
+    text = body.profileText.strip()
+    if not text:
+        raise HTTPException(400, "Profile text cannot be empty")
+    newest = await db.styleprofile.find_first(
+        where={"userId": user.id, "bucket": body.bucket}, order={"version": "desc"}
+    )
+    new_version = (newest.version if newest else 0) + 1
+    created = await db.styleprofile.create(data={
+        "userId": user.id,
+        "bucket": body.bucket,
+        "version": new_version,
+        "profileText": text,
+        "source": "manual",
+        "sampleCount": newest.sampleCount if newest else 0,
+    })
+    return {"bucket": body.bucket, "version": created.version, "profileText": text,
+            "source": created.source, "createdAt": created.createdAt.isoformat()}
+
+
 class RollbackBody(BaseModel):
     bucket: str
     version: int

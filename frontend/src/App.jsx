@@ -6,6 +6,7 @@ import Landing from "./pages/Landing.jsx";
 import Onboarding from "./pages/Onboarding.jsx";
 import Inbox from "./pages/Inbox.jsx";
 import DraftDetail from "./pages/DraftDetail.jsx";
+import Voice from "./pages/Voice.jsx";
 
 // Grabs the JWT from the OAuth callback fragment (#token=...) and redirects in.
 function AuthCallback() {
@@ -65,6 +66,7 @@ export default function App() {
       <Route path="/welcome" element={<Landing />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/draft/:id" element={<DraftDetail />} />
+      <Route path="/voice" element={isAuthed() ? <Voice /> : <Navigate to="/welcome" replace />} />
       <Route path="/" element={<Gate />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

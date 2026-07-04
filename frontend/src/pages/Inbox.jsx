@@ -150,7 +150,7 @@ export default function Inbox({ me }) {
       <div className="topbar">
         <div className="wordmark"><span className="dot" />Mailify</div>
         <div className="topbar-right">
-          <span className="pill">{me.email}</span>
+          <button className="pill pill-btn" onClick={() => nav("/voice")}>Your voice</button>
           <button className="pill pill-btn" onClick={logout}>Sign out</button>
         </div>
       </div>
