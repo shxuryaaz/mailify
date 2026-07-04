@@ -1,0 +1,149 @@
+// Mailify — Neon (Postgres) schema, accessed from FastAPI via prisma-client-py.
+//
+// `prisma db push` creates these tables in Neon. `prisma generate` builds the
+// async Python client that app.db imports.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+enum DraftStatus {
+  pending
+  approved
+  sent
+  rejected
+  failed
+}
+
+enum FeedbackSignal {
+  edit
+  reject
+}
+
+model User {
+  id                        String   @id @default(cuid())
+  email                     String   @unique
+  googleSub                 String   @unique // Google account subject ("sub" claim) — stable id
+  name                      String?
+  pictureUrl                String?
+
+  // Gmail OAuth — refresh token stored encrypted (Fernet). Never plaintext.
+  gmailRefreshTokenEnc      String?
+  gmailConnected            Boolean  @default(false)
+
+  // Gmail push watch bookkeeping — see app/gmail/watch.py
+  gmailHistoryId            BigInt?  // last historyId we have reconciled up to
+  watchExpiration           BigInt?  // ms epoch when the current watch() expires
+  watchTopic                String?
+
+  onboardingComplete        Boolean  @default(false)
+  onboardingState           String   @default("new") // new | connecting | profiling | ready | error
+
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  styleProfiles     StyleProfile[]
+  drafts            Draft[]
+  processedMessages ProcessedMessage[]
+  pushSubscriptions PushSubscription[]
+  profileFeedback   ProfileFeedback[]
+}
+
+// Versioned, bucketed style profiles. New rows are appended (never overwritten) so
+// the voice model's evolution is auditable and roll-back-able. Draft time always
+// reads the highest `version` for a (userId, bucket).
+model StyleProfile {
+  id          String   @id @default(cuid())
+  userId      String
+  bucket      String   // "close_internal" | "external_professional" | "cold_stranger"
+  version     Int      @default(1)
+  profileText String
+  // provenance: "onboarding" for the initial distill, "redistill" for learning-loop runs
+  source      String   @default("onboarding")
+  sampleCount Int      @default(0) // how many emails/feedback rows fed this version
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bucket, version])
+  @@index([userId, bucket, version])
+}
+
+model Draft {
+  id             String      @id @default(cuid())
+  userId         String
+  gmailMessageId String // the incoming message we are replying to
+  gmailThreadId  String
+  gmailDraftId   String? // native Gmail draft id (present once created)
+  bucket         String
+  importance     Int         @default(0) // 0..100, ordering + high_priority_only gate
+  shouldDraft    Boolean     @default(true)
+  status         DraftStatus @default(pending)
+  draftBody      String      @default("")
+  subject        String      @default("")
+  incomingFrom   String      @default("")
+  incomingSnippet String     @default("")
+
+  // Guards double-send. Set once at creation; approve/patch are no-ops if already terminal.
+  idempotencyKey String      @unique
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedback ProfileFeedback[]
+
+  @@index([userId, status, createdAt])
+}
+
+// Pub/Sub is at-least-once: the same message id can arrive twice. First writer wins;
+// the unique constraint makes reprocessing a cheap no-op.
+model ProcessedMessage {
+  id             String   @id @default(cuid())
+  userId         String
+  gmailMessageId String
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gmailMessageId])
+}
+
+model PushSubscription {
+  id           String   @id @default(cuid())
+  userId       String
+  endpoint     String   @unique
+  subscription Json // full PushSubscription JSON (endpoint + keys)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Training data for the learning loop (Part 7). Every edit and reject lands here;
+// the batched re-distill reads recent rows per bucket.
+model ProfileFeedback {
+  id           String         @id @default(cuid())
+  userId       String
+  bucket       String
+  draftId      String
+  originalBody String // what the model wrote
+  finalBody    String // what I actually sent ("" for a reject)
+  signalType   FeedbackSignal
+  // false until a re-distill run has consumed this row
+  consumed     Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  draft Draft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([userId, bucket, consumed])
+}

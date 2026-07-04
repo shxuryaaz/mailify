@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.env
+backend/prisma/*.db
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.env
+
+# Prisma generated client
+backend/prisma/generated/
+
+# OS
+.DS_Store

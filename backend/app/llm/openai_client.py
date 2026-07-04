@@ -1,0 +1,169 @@
+"""OpenAI wrapper for Mailify's three LLM jobs:
+
+  1. distill_profile   — onboarding taste agent, one call per bucket (Part 2)
+  2. draft_reply       — the live pipeline's single call: {importance, should_draft,
+                         draft_body} as strict JSON (Part 4)
+  3. redistill_profile — the learning loop's batched, drift-guarded sharpen (Part 7)
+
+All three use the async OpenAI client with JSON-mode responses so we never hand
+free-text back to the caller. The model id is a config constant (settings.openai_model).
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from openai import AsyncOpenAI
+
+from ..config import settings
+
+_client: AsyncOpenAI | None = None
+
+
+def client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set.")
+        _client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _client
+
+
+async def _json_chat(system: str, user: str, *, max_tokens: int = 1200) -> dict[str, Any]:
+    """One JSON-mode chat call. Returns the parsed object (or raises)."""
+    resp = await client().chat.completions.create(
+        model=settings.openai_model,
+        response_format={"type": "json_object"},
+        temperature=0.4,
+        max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    content = resp.choices[0].message.content or "{}"
+    return json.loads(content)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Taste agent — distill a compact style profile for one bucket.
+# ─────────────────────────────────────────────────────────────────────────────
+DISTILL_SYSTEM = """You analyze how one specific person writes emails, so an AI can \
+later draft replies that sound exactly like them.
+
+You are given a batch of emails THIS PERSON SENT to one relationship bucket \
+(e.g. close/internal colleagues, external/professional contacts, or cold/first-contact).
+
+Produce a SHORT style profile — a description, not a transcript. Capture only what a \
+ghost-writer would need:
+- typical length (very short / short / medium / long)
+- formality and register
+- whether they open with a greeting or dive straight in
+- typical sign-off
+- how they say no / push back
+- how they hedge, or whether they don't
+- any recurring quirks (lowercase, dashes, emoji, one-liners, etc.)
+
+Keep it under ~150 words. Return JSON: {"profile_text": "..."}."""
+
+
+async def distill_profile(bucket_label: str, sent_samples: list[str]) -> str:
+    joined = "\n\n---\n\n".join(sent_samples[:80])  # cap prompt size
+    user = f"Relationship bucket: {bucket_label}\n\nEmails they sent:\n\n{joined}"
+    out = await _json_chat(DISTILL_SYSTEM, user, max_tokens=600)
+    return (out.get("profile_text") or "").strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Live pipeline — the single draft call. Strict JSON contract.
+# ─────────────────────────────────────────────────────────────────────────────
+DRAFT_SYSTEM = """You are the drafting engine for a human-in-the-loop email agent. \
+The owner reads and approves every draft before it sends — so draft in their voice, \
+but never invent facts (prices, dates, commitments) you don't have. If a fact is \
+needed and unknown, leave a clearly bracketed placeholder like [confirm date].
+
+You are given: the owner's style profile for this sender's relationship bucket, and \
+the incoming email thread. Decide three things and return them as JSON:
+
+- "importance": integer 0-100. How much this email matters to the owner. Used ONLY for \
+  ordering and prioritization — NOT for whether to notify. Be calibrated: newsletters \
+  and automated notices are low; a real person asking something time-sensitive is high.
+- "should_draft": boolean. True if this email is worth the owner replying to at all \
+  (a real message that wants a response). False for no-reply notifications, spam, \
+  receipts, FYIs that need no answer.
+- "draft_body": string. If should_draft is true, a complete reply in the owner's voice \
+  matching the style profile, ready to send after approval. Plain text, no subject line, \
+  no "Draft:" preamble. If should_draft is false, an empty string.
+
+Return exactly {"importance": int, "should_draft": bool, "draft_body": str}."""
+
+
+async def draft_reply(*, style_profile: str, thread_text: str, sender: str) -> dict[str, Any]:
+    user = (
+        f"Owner's style profile for this sender's bucket:\n{style_profile}\n\n"
+        f"Sender: {sender}\n\n"
+        f"Incoming thread (most recent last):\n{thread_text}"
+    )
+    out = await _json_chat(DRAFT_SYSTEM, user, max_tokens=1400)
+    # Normalize / defend the contract.
+    importance = int(out.get("importance", 0) or 0)
+    importance = max(0, min(100, importance))
+    should_draft = bool(out.get("should_draft", False))
+    draft_body = (out.get("draft_body") or "").strip()
+    if not should_draft:
+        draft_body = ""
+    return {
+        "importance": importance,
+        "should_draft": should_draft,
+        "draft_body": draft_body,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Learning loop — sharpen an existing profile from recent edits/rejects.
+#    Drift-guarded: anchored to the current profile, only ADJUSTS it.
+# ─────────────────────────────────────────────────────────────────────────────
+REDISTILL_SYSTEM = """You refine a person's email STYLE PROFILE using evidence of how \
+they actually edited or rejected AI-drafted replies.
+
+Critical rules:
+- You are ANCHORED to the CURRENT profile. It was built from hundreds of real sent \
+  emails. Only ADJUST it — never rewrite from scratch off a handful of edits.
+- Adjust ONLY for patterns that repeat across multiple examples (e.g. they keep cutting \
+  the greeting, keep shortening, keep softening a hard no). IGNORE one-off changes and \
+  outliers — a run of unusual emails must not nuke a profile.
+- Keep it short (under ~150 words), same shape as the input profile.
+
+Each edit example shows what the model wrote (ORIGINAL) and what the owner actually sent \
+(FINAL). Each reject shows a draft the owner threw away entirely (signal that the tone or \
+the decision to draft was wrong).
+
+Return JSON: {"profile_text": "...", "changed": bool, "notes": "one line on what you \
+adjusted, or why you left it unchanged"}."""
+
+
+async def redistill_profile(
+    *, bucket_label: str, current_profile: str, feedback: list[dict[str, str]]
+) -> dict[str, Any]:
+    lines: list[str] = []
+    for i, f in enumerate(feedback, 1):
+        if f.get("signal_type") == "reject":
+            lines.append(f"[{i}] REJECT — draft discarded:\nORIGINAL: {f.get('original_body','')}")
+        else:
+            lines.append(
+                f"[{i}] EDIT:\nORIGINAL: {f.get('original_body','')}\n"
+                f"FINAL (what they sent): {f.get('final_body','')}"
+            )
+    user = (
+        f"Relationship bucket: {bucket_label}\n\n"
+        f"CURRENT profile:\n{current_profile}\n\n"
+        f"Recent feedback ({len(feedback)} items):\n\n" + "\n\n".join(lines)
+    )
+    out = await _json_chat(REDISTILL_SYSTEM, user, max_tokens=700)
+    new_text = (out.get("profile_text") or "").strip()
+    return {
+        "profile_text": new_text or current_profile,
+        "changed": bool(out.get("changed", False)) and bool(new_text),
+        "notes": (out.get("notes") or "").strip(),
+    }
