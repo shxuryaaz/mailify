@@ -24,6 +24,21 @@ export function pushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+// True when this browser already has permission AND a live push subscription —
+// i.e. there is nothing left to prompt for. Used to hide the enable banner for
+// users who already turned notifications on.
+export async function alreadySubscribed() {
+  if (!pushSupported()) return false;
+  if (Notification.permission !== "granted") return false;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return false;
+    return !!(await reg.pushManager.getSubscription());
+  } catch (_) {
+    return false;
+  }
+}
+
 export async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return null;
   return navigator.serviceWorker.register("/sw.js", { scope: "/" });

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
-import { enablePush, isIOS, isStandalone, pushSupported } from "../push.js";
+import { alreadySubscribed, enablePush, isIOS, isStandalone, pushSupported } from "../push.js";
 
 function ImportanceMeter({ value }) {
   return (
@@ -16,11 +16,25 @@ function ImportanceMeter({ value }) {
 // iOS "install to home screen first" reality.
 function PushBanner() {
   const [status, setStatus] = useState(null);
+  const [checked, setChecked] = useState(false);
   const [dismissed, setDismissed] = useState(
     () => localStorage.getItem("mailify_push_dismissed") === "1"
   );
 
+  // Ask the browser whether push is already on before rendering anything, so we
+  // don't nag users who already enabled it (and don't flash the banner first).
+  useEffect(() => {
+    let alive = true;
+    alreadySubscribed().then((on) => {
+      if (!alive) return;
+      if (on) setStatus("subscribed");
+      setChecked(true);
+    });
+    return () => { alive = false; };
+  }, []);
+
   if (dismissed || !pushSupported()) return null;
+  if (!checked) return null; // wait for the subscription check
   if (status === "subscribed") return null;
 
   const iosNeedsInstall = isIOS() && !isStandalone();
