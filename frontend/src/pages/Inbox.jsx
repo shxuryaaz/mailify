@@ -79,13 +79,31 @@ function PushBanner() {
   );
 }
 
+function fmtSent(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
 export default function Inbox({ me }) {
+  const [tab, setTab] = useState("pending"); // "pending" | "sent"
   const [drafts, setDrafts] = useState(null);
+  const [sent, setSent] = useState(null);
   const [error, setError] = useState(false);
 
   const load = async () => {
     try {
       setDrafts(await api.listDrafts());
+    } catch (_) {
+      setError(true);
+    }
+  };
+
+  const loadSent = async () => {
+    try {
+      setSent(await api.listSent());
     } catch (_) {
       setError(true);
     }
@@ -102,6 +120,11 @@ export default function Inbox({ me }) {
     };
   }, []);
 
+  // Load the sent log the first time the tab is opened, and whenever it's shown.
+  useEffect(() => {
+    if (tab === "sent") loadSent();
+  }, [tab]);
+
   return (
     <div className="shell">
       <div className="topbar">
@@ -111,45 +134,90 @@ export default function Inbox({ me }) {
 
       <PushBanner />
 
-      <div className="section-label">
-        Pending drafts{drafts ? ` · ${drafts.length}` : ""}
+      <div className="tabs">
+        <button
+          className={`tab ${tab === "pending" ? "tab-active" : ""}`}
+          onClick={() => setTab("pending")}
+        >
+          Pending{drafts ? ` · ${drafts.length}` : ""}
+        </button>
+        <button
+          className={`tab ${tab === "sent" ? "tab-active" : ""}`}
+          onClick={() => setTab("sent")}
+        >
+          Sent{sent ? ` · ${sent.length}` : ""}
+        </button>
       </div>
 
-      {drafts === null && !error && (
-        <div className="center"><div className="spinner" /></div>
-      )}
+      {tab === "pending" && (
+        <>
+          {drafts === null && !error && (
+            <div className="center"><div className="spinner" /></div>
+          )}
 
-      {error && (
-        <div className="center">
-          <div className="empty-emoji">⚠️</div>
-          <div className="muted">Couldn't load drafts. Pull to refresh.</div>
-        </div>
-      )}
-
-      {drafts && drafts.length === 0 && (
-        <div className="center">
-          <div className="empty-emoji">✨</div>
-          <h2 className="display" style={{ fontSize: 22 }}>You're all caught up</h2>
-          <div className="muted">
-            New replies will appear here the moment they're drafted. We'll ping you.
-          </div>
-        </div>
-      )}
-
-      {drafts &&
-        drafts.map((d) => (
-          <Link key={d.id} to={`/draft/${d.id}`} className="draft-item">
-            <div className="row">
-              <div className="from">{d.incomingFrom.split("<")[0].replace(/"/g, "").trim() || d.incomingFrom}</div>
-              <ImportanceMeter value={d.importance} />
+          {error && drafts === null && (
+            <div className="center">
+              <div className="empty-emoji">⚠️</div>
+              <div className="muted">Couldn't load drafts. Pull to refresh.</div>
             </div>
-            <div className="subject">{d.subject}</div>
-            <div className="preview">{d.draftBody}</div>
-            <div style={{ marginTop: 10 }}>
-              <span className="bucket-tag">{d.bucket.replace("_", " · ")}</span>
+          )}
+
+          {drafts && drafts.length === 0 && (
+            <div className="center">
+              <div className="empty-emoji">✨</div>
+              <h2 className="display" style={{ fontSize: 22 }}>You're all caught up</h2>
+              <div className="muted">
+                New replies will appear here the moment they're drafted. We'll ping you.
+              </div>
             </div>
-          </Link>
-        ))}
+          )}
+
+          {drafts &&
+            drafts.map((d) => (
+              <Link key={d.id} to={`/draft/${d.id}`} className="draft-item">
+                <div className="row">
+                  <div className="from">{d.incomingFrom.split("<")[0].replace(/"/g, "").trim() || d.incomingFrom}</div>
+                  <ImportanceMeter value={d.importance} />
+                </div>
+                <div className="subject">{d.subject}</div>
+                <div className="preview">{d.draftBody}</div>
+                <div style={{ marginTop: 10 }}>
+                  <span className="bucket-tag">{d.bucket.replace("_", " · ")}</span>
+                </div>
+              </Link>
+            ))}
+        </>
+      )}
+
+      {tab === "sent" && (
+        <>
+          {sent === null && (
+            <div className="center"><div className="spinner" /></div>
+          )}
+
+          {sent && sent.length === 0 && (
+            <div className="center">
+              <div className="empty-emoji">📭</div>
+              <div className="muted">Nothing sent yet. Approved replies will show up here.</div>
+            </div>
+          )}
+
+          {sent &&
+            sent.map((d) => (
+              <div key={d.id} className="draft-item">
+                <div className="row">
+                  <div className="from">To: {d.incomingFrom.split("<")[0].replace(/"/g, "").trim() || d.incomingFrom}</div>
+                  <span className="pill">{fmtSent(d.sentAt)}</span>
+                </div>
+                <div className="subject">{d.subject}</div>
+                <div className="preview">{d.draftBody}</div>
+                <div style={{ marginTop: 10 }}>
+                  <span className="bucket-tag">{d.bucket.replace("_", " · ")}</span>
+                </div>
+              </div>
+            ))}
+        </>
+      )}
     </div>
   );
 }

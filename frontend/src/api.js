@@ -28,6 +28,7 @@ export const api = {
   base: BASE,
   me: () => request("/auth/me"),
   listDrafts: () => request("/drafts"),
+  listSent: () => request("/drafts/sent"),
   getDraft: (id) => request(`/drafts/${id}`),
   approve: (id) => request(`/drafts/${id}/approve`, { method: "POST" }),
   reject: (id) => request(`/drafts/${id}/reject`, { method: "POST" }),

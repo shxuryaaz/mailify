@@ -52,6 +52,19 @@ async def list_drafts(user: User = Depends(current_user)):
     return [_view(d) for d in drafts]
 
 
+@router.get("/sent")
+async def list_sent(user: User = Depends(current_user), limit: int = 100):
+    """Log of replies actually sent from the platform, newest first. (updatedAt is
+    when the row went terminal — i.e. when it sent.) Declared before /{draft_id}
+    so 'sent' isn't captured as a draft id."""
+    drafts = await db.draft.find_many(
+        where={"userId": user.id, "status": "sent"},
+        order=[{"updatedAt": "desc"}],
+        take=max(1, min(limit, 500)),
+    )
+    return [{**_view(d), "sentAt": d.updatedAt.isoformat()} for d in drafts]
+
+
 async def _get_owned(draft_id: str, user: User):
     d = await db.draft.find_unique(where={"id": draft_id})
     if not d or d.userId != user.id:
@@ -140,6 +153,7 @@ async def edit_and_send(draft_id: str, body: PatchBody, user: User = Depends(cur
             to=d.incomingFrom,
             subject=d.subject,
             body=final_body,
+            signature_html=user.signatureHtml,
         )
         await gmail.send_draft(d.gmailDraftId)
         await db.draft.update(where={"id": draft_id},
