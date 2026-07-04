@@ -6,12 +6,14 @@ services:
     name: mailify-api
     runtime: python
     plan: starter
-    buildCommand: "pip install -r requirements.txt && prisma generate && prisma db push --skip-generate"
+    buildCommand: "pip install -r requirements.txt && prisma py fetch && prisma generate && prisma db push --skip-generate"
     startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
+      - key: PRISMA_BINARY_CACHE_DIR
+        value: /opt/render/project/src/.prisma
       - key: DRAFT_MODE
         value: reply_worthy
       - key: OPENAI_MODEL
