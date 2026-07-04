@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from prisma import Json
 from prisma.models import User
 from pydantic import BaseModel
 
@@ -32,11 +33,14 @@ async def subscribe(body: SubscribeBody, user: User = Depends(current_user)):
     if not endpoint:
         return {"status": "error", "detail": "missing endpoint"}
     # Endpoint is unique — upsert so re-subscribing (new key rotation) is clean.
+    # prisma-client-py requires JSON columns wrapped in Json(); a raw dict is
+    # rejected by the query engine.
+    sub_json = Json(body.subscription)
     await db.pushsubscription.upsert(
         where={"endpoint": endpoint},
         data={
-            "create": {"userId": user.id, "endpoint": endpoint, "subscription": body.subscription},
-            "update": {"userId": user.id, "subscription": body.subscription},
+            "create": {"userId": user.id, "endpoint": endpoint, "subscription": sub_json},
+            "update": {"userId": user.id, "subscription": sub_json},
         },
     )
     return {"status": "subscribed"}
