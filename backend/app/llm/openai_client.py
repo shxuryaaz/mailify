@@ -12,6 +12,7 @@ free-text back to the caller. The model id is a config constant (settings.openai
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -68,8 +69,49 @@ ghost-writer would need:
 Keep it under ~150 words. Return JSON: {"profile_text": "..."}."""
 
 
+# Lines that mark the start of a quoted reply chain. The owner's *own* writing is
+# above these; everything below is someone else's email we don't want polluting a
+# style profile (and, more urgently, what balloons a sent email to tens of
+# thousands of tokens).
+_QUOTE_MARKERS = re.compile(
+    r"^\s*(On .+ wrote:|-{2,}\s*Original Message\s*-{2,}|_{5,}|"
+    r"From:\s.+|Sent from my \w+)",
+    re.IGNORECASE,
+)
+
+
+def _own_text(body: str) -> str:
+    """Keep only what the owner actually typed: drop the quoted reply chain and
+    any leading '>' quote lines."""
+    kept: list[str] = []
+    for ln in body.splitlines():
+        if _QUOTE_MARKERS.match(ln):
+            break
+        if ln.lstrip().startswith(">"):
+            continue
+        kept.append(ln)
+    return "\n".join(kept).strip()
+
+
+# Backstop caps so a few pathologically long emails can't blow past the model's
+# context window (~128k tokens ≈ 4 chars/token). With quotes stripped, 4000 chars
+# is a very generous ceiling for one person's own writing in a single email.
+_DISTILL_PER_EMAIL_CHARS = 4000
+_DISTILL_TOTAL_CHARS = 240_000
+
+
 async def distill_profile(bucket_label: str, sent_samples: list[str]) -> str:
-    joined = "\n\n---\n\n".join(sent_samples[:80])  # cap prompt size
+    packed: list[str] = []
+    used = 0
+    for raw in sent_samples[:80]:
+        s = _own_text(raw)[:_DISTILL_PER_EMAIL_CHARS]
+        if not s:
+            continue
+        if used + len(s) > _DISTILL_TOTAL_CHARS:
+            break
+        packed.append(s)
+        used += len(s)
+    joined = "\n\n---\n\n".join(packed)
     user = f"Relationship bucket: {bucket_label}\n\nEmails they sent:\n\n{joined}"
     out = await _json_chat(DISTILL_SYSTEM, user, max_tokens=600)
     return (out.get("profile_text") or "").strip()
