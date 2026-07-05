@@ -72,23 +72,31 @@ Keep it under ~150 words. Return JSON: {"profile_text": "..."}."""
 # Lines that mark the start of a quoted reply chain. The owner's *own* writing is
 # above these; everything below is someone else's email we don't want polluting a
 # style profile (and, more urgently, what balloons a sent email to tens of
-# thousands of tokens).
+# thousands of tokens). We cut at the FIRST of these — once quoting begins,
+# nothing below is the owner's own voice.
 _QUOTE_MARKERS = re.compile(
-    r"^\s*(On .+ wrote:|-{2,}\s*Original Message\s*-{2,}|_{5,}|"
-    r"From:\s.+|Sent from my \w+)",
+    r"^\s*("
+    r"On\b.*\bwrote:\s*$"          # Gmail/Apple attribution: "On <date> X wrote:"
+    r"|.*\bwrote:\s*$"             # …even when the date line soft-wraps first
+    r"|-{2,}\s*Original Message\s*-{2,}"   # Outlook
+    r"|_{5,}"                       # Outlook horizontal rule before header block
+    r"|From:\s*.+<[^>]+>\s*$"       # a real quoted 'From: Name <addr>' header line
+    r"|(?:Sent|Date|To|Cc|Subject):\s.+"   # rest of the quoted header block
+    r"|Sent from my \w+"           # mobile signature that precedes the quote
+    r")",
     re.IGNORECASE,
 )
 
 
 def _own_text(body: str) -> str:
-    """Keep only what the owner actually typed: drop the quoted reply chain and
-    any leading '>' quote lines."""
+    """Keep only what the owner actually typed: everything above the first quoted
+    reply. Cut at a quote marker OR the first '>'-quoted line — for HTML emails the
+    quoted block has no '>' prefix, so the marker is the only signal; for plaintext
+    the '>' is, so we honor whichever comes first."""
     kept: list[str] = []
     for ln in body.splitlines():
-        if _QUOTE_MARKERS.match(ln):
+        if _QUOTE_MARKERS.match(ln) or ln.lstrip().startswith(">"):
             break
-        if ln.lstrip().startswith(">"):
-            continue
         kept.append(ln)
     return "\n".join(kept).strip()
 

@@ -94,6 +94,11 @@ class GmailClient:
     async def get_message(self, message_id: str, fmt: str = "full") -> dict[str, Any]:
         return await self._request("GET", f"/messages/{message_id}", params={"format": fmt})
 
+    async def get_thread(self, thread_id: str, fmt: str = "full") -> dict[str, Any]:
+        """The whole conversation, messages oldest-first, so the drafting model
+        sees every prior turn — not just the latest incoming message."""
+        return await self._request("GET", f"/threads/{thread_id}", params={"format": fmt})
+
     async def trash_message(self, message_id: str) -> dict[str, Any]:
         return await self._request("POST", f"/messages/{message_id}/trash")
 

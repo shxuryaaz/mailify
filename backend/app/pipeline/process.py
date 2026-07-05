@@ -14,6 +14,7 @@ Dedupe is enforced up front against `processed_messages` (Pub/Sub is at-least-on
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from prisma.errors import UniqueViolationError
@@ -99,7 +100,7 @@ async def process_message(user: User, message_id: str) -> None:
     bucket = await _infer_bucket(user, gmail, from_addr)
     profile = await _newest_profile(user.id, bucket)
 
-    thread_text = _render_thread(msg)
+    thread_text = await _render_thread(gmail, msg, owner_email=user.email.lower())
     result = await draft_reply(
         style_profile=profile, thread_text=thread_text, sender=msg["from"],
         owner_name=user.name or "", owner_email=user.email,
@@ -158,12 +159,48 @@ async def process_message(user: User, message_id: str) -> None:
     )
 
 
-def _render_thread(msg: dict) -> str:
-    return (
-        f"From: {msg['from']}\n"
-        f"Subject: {msg['subject']}\n\n"
-        f"{msg['body'] or msg['snippet']}"
-    )
+async def _render_thread(gmail: GmailClient, latest: dict, *, owner_email: str) -> str:
+    """Render the whole conversation, oldest turn first, so the model sees every
+    prior exchange — including the owner's own earlier replies. Each turn is
+    labelled (YOU / the sender) and quote-stripped so a turn appears once, not
+    nested inside every message below it.
+
+    Falls back to just the latest message if the thread fetch fails for any reason."""
+    try:
+        thread = await gmail.get_thread(latest["thread_id"])
+        raw_msgs = thread.get("messages", []) or []
+    except Exception:  # noqa: BLE001
+        raw_msgs = []
+
+    parsed = [parse_message(m) for m in raw_msgs] if raw_msgs else [latest]
+    subject = latest["subject"] or (parsed[0]["subject"] if parsed else "")
+
+    turns: list[str] = [f"Subject: {subject}\n"]
+    for m in parsed:
+        who = "YOU" if sender_email(m["from"]) == owner_email else m["from"]
+        body = _strip_quotes(m["body"] or m["snippet"] or "").strip()
+        if not body:
+            continue
+        turns.append(f"--- {who} wrote:\n{body}")
+    return "\n\n".join(turns)
+
+
+_QUOTE_CUT = re.compile(
+    r"^\s*(On\b.*\bwrote:\s*$|.*\bwrote:\s*$|-{2,}\s*Original Message\s*-{2,}|_{5,}"
+    r"|(?:From|Sent|Date|To|Cc|Subject):\s.+|Sent from my \w+)",
+    re.IGNORECASE,
+)
+
+
+def _strip_quotes(body: str) -> str:
+    """Keep only this turn's own text — cut at the first quoted reply so each
+    message in the rendered thread appears once rather than re-quoting all below."""
+    kept: list[str] = []
+    for ln in body.splitlines():
+        if _QUOTE_CUT.match(ln) or ln.lstrip().startswith(">"):
+            break
+        kept.append(ln)
+    return "\n".join(kept)
 
 
 def _reply_subject(subject: str) -> str:
